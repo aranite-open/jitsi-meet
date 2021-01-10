@@ -8,6 +8,7 @@ import ReactDOM from 'react-dom';
 import { I18nextProvider } from 'react-i18next';
 import { Provider } from 'react-redux';
 
+import { createScreenSharingIssueEvent, sendAnalytics } from '../../../react/features/analytics';
 import { AudioLevelIndicator } from '../../../react/features/audio-level-indicator';
 import { Avatar as AvatarDisplay } from '../../../react/features/base/avatar';
 import { i18next } from '../../../react/features/base/i18n';
@@ -94,16 +95,6 @@ export default class SmallVideo {
         this.VideoLayout = VideoLayout;
         this.videoIsHovered = false;
         this.videoType = undefined;
-
-        /**
-         * The current state of the user's bridge connection. The value should be
-         * a string as enumerated in the library's participantConnectionStatus
-         * constants.
-         *
-         * @private
-         * @type {string|null}
-         */
-        this._connectionStatus = null;
 
         /**
          * Whether or not the connection indicator should be displayed.
@@ -207,16 +198,6 @@ export default class SmallVideo {
     */
     removeConnectionIndicator() {
         this._showConnectionIndicator = false;
-        this.updateIndicators();
-    }
-
-    /**
-     * Updates the connectionStatus stat which displays in the ConnectionIndicator.
-
-    * @returns {void}
-    */
-    updateConnectionStatus(connectionStatus) {
-        this._connectionStatus = connectionStatus;
         this.updateIndicators();
     }
 
@@ -453,6 +434,7 @@ export default class SmallVideo {
      */
     computeDisplayModeInput() {
         let isScreenSharing = false;
+        let connectionStatus;
         const state = APP.store.getState();
         const participant = getParticipantById(state, this.id);
 
@@ -461,6 +443,7 @@ export default class SmallVideo {
             const track = getTrackByMediaTypeAndParticipant(tracks, MEDIA_TYPE.VIDEO, this.id);
 
             isScreenSharing = typeof track !== 'undefined' && track.videoType === 'desktop';
+            connectionStatus = participant.connectionStatus;
         }
 
         return {
@@ -470,8 +453,7 @@ export default class SmallVideo {
             tileViewActive: shouldDisplayTileView(state),
             isVideoPlayable: this.isVideoPlayable(),
             hasVideo: Boolean(this.selectVideoElement().length),
-            connectionStatus: APP.conference.getParticipantConnectionStatus(this.id),
-            mutedWhileDisconnected: this.mutedWhileDisconnected,
+            connectionStatus,
             canPlayEventReceived: this._canPlayEventReceived,
             videoStream: Boolean(this.videoStream),
             isScreenSharing,
@@ -530,6 +512,18 @@ export default class SmallVideo {
 
         if (this.displayMode !== oldDisplayMode) {
             logger.debug(`Displaying ${displayModeString} for ${this.id}, data: [${JSON.stringify(displayModeInput)}]`);
+        }
+
+        if (this.displayMode !== DISPLAY_VIDEO
+            && this.displayMode !== DISPLAY_VIDEO_WITH_NAME
+            && displayModeInput.tileViewActive
+            && displayModeInput.isScreenSharing
+            && !displayModeInput.isAudioOnly) {
+            // send the event
+            sendAnalytics(createScreenSharingIssueEvent({
+                source: 'thumbnail',
+                ...displayModeInput
+            }));
         }
     }
 
@@ -714,10 +708,9 @@ export default class SmallVideo {
                             { this._showConnectionIndicator
                                 ? <ConnectionIndicator
                                     alwaysVisible = { showConnectionIndicator }
-                                    connectionStatus = { this._connectionStatus }
                                     iconSize = { iconSize }
                                     isLocalVideo = { this.isLocal }
-                                    enableStatsDisplay = { !interfaceConfig.filmStripOnly }
+                                    enableStatsDisplay = { true }
                                     participantId = { this.id }
                                     statsPopoverPosition = { statsPopoverPosition } />
                                 : null }
